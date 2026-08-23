@@ -12,7 +12,7 @@ npm start
 
 Open http://localhost:3000. Run verification with `npm test`.
 
-Set `OPENAI_API_KEY` to enable the OpenAI Agents SDK agent loop. `OPENAI_MODEL` is optional and defaults to `gpt-4.1-mini`. Without a key, the same API uses the deterministic fallback so reviewers can still run every workflow.
+Set `OPENROUTER_API_KEY` to run the OpenAI Agents SDK through OpenRouter. `OPENROUTER_MODEL` defaults to `openai/gpt-4.1-mini`. Direct OpenAI keys remain supported. Without a key, the API uses the deterministic fallback so reviewers can still run every workflow.
 
 ## Included
 
