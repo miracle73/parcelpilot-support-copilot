@@ -1,0 +1,2 @@
+@media(max-width:900px){.profile>div:last-child{display:none}.profile{justify-content:center}.profile-dot{flex:0 0 34px}.overview-grid .mini:last-child{grid-column:1/-1}.header-tools{gap:5px}}
+@media(max-width:620px){.header-tools label span{display:none}.header-tools label{padding:4px 7px}.header-tools select{max-width:112px}.overview-grid .mini:last-child{grid-column:auto}}
