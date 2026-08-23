@@ -9,7 +9,7 @@
       "status": "active",
       "csm": "Priya Mehta",
       "contract_file": "05_Northstar_Logistics_Enterprise_Agreement.pdf",
-      "premium_support": "TRUE",
+      "premium_support": true,
       "notes": "Strategic account. Contract contains custom SLA and cancellation terms."
     },
     {
@@ -19,7 +19,7 @@
       "status": "active",
       "csm": "Arjun Rao",
       "contract_file": "06_LumenWorks_Service_Agreement.pdf",
-      "premium_support": "FALSE",
+      "premium_support": false,
       "notes": "Growth customer with contract-specific service credit terms."
     },
     {
@@ -29,7 +29,7 @@
       "status": "active",
       "csm": "Neha Kapoor",
       "contract_file": null,
-      "premium_support": "FALSE",
+      "premium_support": false,
       "notes": "No custom agreement in the supplied pack; standard policies apply."
     },
     {
@@ -39,7 +39,7 @@
       "status": "active",
       "csm": "Priya Mehta",
       "contract_file": null,
-      "premium_support": "FALSE",
+      "premium_support": false,
       "notes": "Enterprise plan; standard Enterprise support policy applies."
     }
   ],
@@ -53,9 +53,9 @@
       "pickup_window_start": "2026-08-16 10:30",
       "pickup_window_end": "2026-08-16 11:30",
       "pickup_actual_at": null,
-      "shipment_fee_inr": "4200",
-      "carrier_fault": "FALSE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 4200,
+      "carrier_fault": false,
+      "customer_fault": false,
       "cancellation_requested_at": "2026-08-16 11:00",
       "notes": "Customer asks to cancel. Shipment has not been picked up."
     },
@@ -68,9 +68,9 @@
       "pickup_window_start": "2026-08-16 09:00",
       "pickup_window_end": "2026-08-16 10:00",
       "pickup_actual_at": "2026-08-16 09:35",
-      "shipment_fee_inr": "5100",
-      "carrier_fault": "FALSE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 5100,
+      "carrier_fault": false,
+      "customer_fault": false,
       "cancellation_requested_at": "2026-08-16 10:20",
       "notes": "Customer later asked to cancel after pickup."
     },
@@ -83,9 +83,9 @@
       "pickup_window_start": "2026-08-16 11:00",
       "pickup_window_end": "2026-08-16 12:00",
       "pickup_actual_at": null,
-      "shipment_fee_inr": "1800",
-      "carrier_fault": "FALSE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 1800,
+      "carrier_fault": false,
+      "customer_fault": false,
       "cancellation_requested_at": "2026-08-16 10:15",
       "notes": "Cancellation requested 75 minutes after booking; not yet picked up."
     },
@@ -98,9 +98,9 @@
       "pickup_window_start": "2026-08-16 05:30",
       "pickup_window_end": "2026-08-16 06:30",
       "pickup_actual_at": null,
-      "shipment_fee_inr": "2400",
-      "carrier_fault": "TRUE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 2400,
+      "carrier_fault": true,
+      "customer_fault": false,
       "cancellation_requested_at": null,
       "notes": "Pickup missed. Carrier accepted fault. Still not picked up at dataset snapshot."
     },
@@ -113,9 +113,9 @@
       "pickup_window_start": "2026-08-16 12:00",
       "pickup_window_end": "2026-08-16 13:00",
       "pickup_actual_at": null,
-      "shipment_fee_inr": "1200",
-      "carrier_fault": "FALSE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 1200,
+      "carrier_fault": false,
+      "customer_fault": false,
       "cancellation_requested_at": "2026-08-16 10:40",
       "notes": "Cancellation requested within 30 minutes of booking."
     },
@@ -128,9 +128,9 @@
       "pickup_window_start": "2026-08-15 09:00",
       "pickup_window_end": "2026-08-15 10:00",
       "pickup_actual_at": "2026-08-15 09:20",
-      "shipment_fee_inr": "3600",
-      "carrier_fault": "FALSE",
-      "customer_fault": "FALSE",
+      "shipment_fee_inr": 3600,
+      "carrier_fault": false,
+      "customer_fault": false,
       "cancellation_requested_at": null,
       "notes": "Completed delivery."
     }

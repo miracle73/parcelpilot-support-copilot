@@ -1,5 +1,5 @@
 const {DATA,date,searchDocuments,lookupOrder,lookupTicket,agreement,analyseIssues}=require('./data');
-const tool=(name,label,result)=>({name,label,status:'complete',result}),cite=d=>d.filter(x=>x&&x.kind!=='deprecated').slice(0,4).map(x=>({id:x.id,title:x.title,filename:x.filename,authority:x.authority}));
+const tool=(name,label,result)=>({name,label,status:'complete',result}),cite=d=>[...new Map(d.filter(x=>x&&x.kind!=='deprecated').map(x=>[x.filename,x])).values()].slice(0,4).map(x=>({id:x.id,title:x.title,filename:x.filename,authority:x.authority}));
 const out=(answer,confidence,tools,sources,action,conflicts=[])=>({answer,confidence,tools,sources,action,conflicts,trust:{precedence:'Active agreement > current policy/SOP > current product guide > historical tickets',snapshot:DATA.snapshot}});
 function runAgent(message,u){let q=message.toLowerCase(),tools=[],oid=(message.match(/ORD-\d+/i)||[])[0]?.toUpperCase(),tid=(message.match(/TKT-\d+/i)||[])[0]?.toUpperCase();if(!q.trim())return out('Please enter a question.','low',[],[]);
  const recordAction=(summary,target)=>({type:u.role==='customer'?'escalation':'ticket_update',summary,target});

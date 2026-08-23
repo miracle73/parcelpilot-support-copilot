@@ -2,6 +2,7 @@ const test=require('node:test'),assert=require('node:assert');const {runAgent}=r
 test('real pack loaded',()=>{assert.equal(DATA.orders.length,6);assert.equal(DATA.documents.length,6);assert.match(DATA.snapshot,/Asia\/Kolkata/)});
 test('OpenAI Agents SDK exposes four scoped tools',()=>{let {agent}=require('./src/openai-agent');assert.deepEqual(agent.tools.map(x=>x.name),['document_search','structured_lookup','policy_calculation','issue_detection'])});
 test('Northstar contract overrides fee',()=>assert.match(runAgent('Can Northstar cancel ORD-1001 without fee?',customer('ACCT-001')).answer,/waives/));
+test('decision citations are unique',()=>{let x=runAgent('Can Northstar cancel ORD-1001 without fee?',customer('ACCT-001'));assert.equal(new Set(x.sources.map(s=>s.filename)).size,x.sources.length)});
 test('picked-up uses RTO',()=>assert.match(runAgent('Cancel ORD-1002',customer('ACCT-001')).answer,/return-to-origin/));
 test('Lumen cancellation costs INR 250',()=>assert.match(runAgent('Cancel ORD-2001',customer('ACCT-002')).answer,/INR 250/));
 test('standard within 30 mins is free',()=>assert.match(runAgent('Cancel ORD-3001',customer('ACCT-003')).answer,/Fee: INR 0/));
