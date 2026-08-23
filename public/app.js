@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),chat=$('#chat'),input=$('#input'),sendButton=$('#send');
-let token,busy=false;
+let busy=false;
 const esc=s=>{let d=document.createElement('div');d.textContent=s;return d.innerHTML};
 
 function add(text,who='bot',x={}){
@@ -34,8 +34,8 @@ async function send(text=input.value.trim()){
   }finally{setBusy(false);input.focus()}
 }
 
-async function prepare(a){const r=await fetch('/api/actions/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...a,role:role.value,account:account.value})}),d=await r.json();if(!r.ok)return add(`<p>${esc(d.error)}</p>`);token=d.token;add(`<b>Review before action</b><p>${esc(d.preview.summary)}</p><small>No state has changed.</small><p><button id="confirmAction" class="confirm">Confirm and execute</button></p>`);$('#confirmAction').onclick=confirm}
-async function confirm(){const r=await fetch('/api/actions/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,confirm:true})}),d=await r.json();add(r.ok?`<b>Action ${esc(d.id)} created</b><p>An audit record was saved.</p>`:`<p>${esc(d.error)}</p>`)}
+async function prepare(a){const r=await fetch('/api/actions/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...a,role:role.value,account:account.value})}),d=await r.json();if(!r.ok)return add(`<p>${esc(d.error)}</p>`);const card=add(`<b>Review before action</b><p>${esc(d.preview.summary)}</p><small>No state has changed.</small><p><button class="confirm">Confirm and execute</button></p>`);card.querySelector('.confirm').onclick=e=>confirm(d.token,e.currentTarget)}
+async function confirm(actionToken,button){button.disabled=true;button.textContent='Executing…';const r=await fetch('/api/actions/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:actionToken,confirm:true})}),d=await r.json();if(!r.ok){button.disabled=false;button.textContent='Try again'}else button.textContent='Executed';add(r.ok?`<b>Action ${esc(d.id)} created</b><p>An audit record was saved.</p>`:`<p>${esc(d.error)}</p>`)}
 async function radar(){if(role.value==='customer'){alerts.innerHTML='<div class="empty">Issue Radar requires an authorised support or operations role.</div>';metrics.innerHTML='';return}const r=await fetch('/api/issues',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:role.value,account:account.value})}),d=await r.json();metrics.innerHTML=Object.entries(d.summary).map(([k,v])=>`<div><strong>${v}</strong><span>${k.replace(/([A-Z])/g,' $1')}</span></div>`).join('');alerts.innerHTML=d.alerts.map(a=>`<article class="${a.level}"><b>${esc(a.title)}</b><p>${esc(a.detail)}</p><span>${a.level}</span></article>`).join('')}
 
 sendButton.onclick=()=>send();input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};

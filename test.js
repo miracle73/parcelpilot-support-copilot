@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert');const {runAgent}=require('./src/agent');const {DATA,analyseIssues}=require('./src/data');const customer=account=>({role:'customer',account});
+test('confirmation cards use scoped one-time handlers',()=>{const js=require('fs').readFileSync(require('path').join(__dirname,'public','app.js'),'utf8');assert.doesNotMatch(js,/id="confirmAction"/);assert.match(js,/confirm\(d\.token,e\.currentTarget\)/)});
 test('real pack loaded',()=>{assert.equal(DATA.orders.length,6);assert.equal(DATA.documents.length,6);assert.match(DATA.snapshot,/Asia\/Kolkata/)});
 test('OpenAI Agents SDK exposes four scoped tools',()=>{let {agent}=require('./src/openai-agent');assert.deepEqual(agent.tools.map(x=>x.name),['document_search','structured_lookup','policy_calculation','issue_detection'])});
 test('Northstar contract overrides fee',()=>assert.match(runAgent('Can Northstar cancel ORD-1001 without fee?',customer('ACCT-001')).answer,/waives/));
