@@ -1,0 +1,1 @@
+{"scripts":{"ingest":"node scripts/ingest.js","start":"node server.js","test":"node --test"},"dependencies":{"@openai/agents":"latest","pdf-parse":"1.1.1","xlsx":"0.18.5","zod":"^4.0.0"},"engines":{"node":">=22"}}

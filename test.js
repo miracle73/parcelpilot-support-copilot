@@ -1,0 +1,13 @@
+const test=require('node:test'),assert=require('node:assert');const {runAgent}=require('./src/agent');const {DATA,analyseIssues}=require('./src/data');const customer=account=>({role:'customer',account});
+test('real pack loaded',()=>{assert.equal(DATA.orders.length,6);assert.equal(DATA.documents.length,6);assert.match(DATA.snapshot,/Asia\/Kolkata/)});
+test('OpenAI Agents SDK exposes four scoped tools',()=>{let {agent}=require('./src/openai-agent');assert.deepEqual(agent.tools.map(x=>x.name),['document_search','structured_lookup','policy_calculation','issue_detection'])});
+test('Northstar contract overrides fee',()=>assert.match(runAgent('Can Northstar cancel ORD-1001 without fee?',customer('ACCT-001')).answer,/waives/));
+test('picked-up uses RTO',()=>assert.match(runAgent('Cancel ORD-1002',customer('ACCT-001')).answer,/return-to-origin/));
+test('Lumen cancellation costs INR 250',()=>assert.match(runAgent('Cancel ORD-2001',customer('ACCT-002')).answer,/INR 250/));
+test('standard within 30 mins is free',()=>assert.match(runAgent('Cancel ORD-3001',customer('ACCT-003')).answer,/Fee: INR 0/));
+test('Lumen fixed credit override',()=>assert.match(runAgent('Credit for ORD-2002?',customer('ACCT-002')).answer,/fixed INR 300/));
+test('cross-account hidden',()=>assert.match(runAgent('Show ORD-2002',customer('ACCT-001')).answer,/authorised scope/));
+test('known issue matching',()=>assert.match(runAgent('Investigate TKT-502',{role:'support',account:'ACCT-001'}).answer,/KI-208/));
+test('security ticket P1',()=>assert.match(runAgent('Investigate TKT-505',{role:'ops',account:'ACCT-001'}).answer,/P1/));
+test('radar detects priorities',()=>{let x=analyseIssues();assert(x.summary.slaBreaches>0);assert(x.summary.knownIssueMatches>0)});
+test('API enforces confirmation and radar role',async()=>{const fs=require('fs'),path=require('path'),{server}=require('./server'),file=path.join(__dirname,'data','actions.json');try{fs.unlinkSync(file)}catch{}await new Promise(ok=>server.listen(0,ok));let base=`http://127.0.0.1:${server.address().port}`,post=(url,body)=>fetch(base+url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});let p=await post('/api/actions/prepare',{role:'customer',account:'ACCT-001',type:'escalation',summary:'test'}).then(r=>r.json());assert(!fs.existsSync(file));assert.equal((await post('/api/actions/confirm',{token:p.token,confirm:false})).status,400);assert.equal((await post('/api/actions/confirm',{token:p.token,confirm:true})).status,201);assert.equal((await post('/api/issues',{role:'customer',account:'ACCT-001'})).status,403);await new Promise(ok=>server.close(ok));fs.unlinkSync(file)});
