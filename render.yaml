@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: parcelpilot-support-copilot
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run ingest
+    startCommand: npm start
+    healthCheckPath: /api/context
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4.1-mini
+      - key: OPENROUTER_API_KEY
+        sync: false
