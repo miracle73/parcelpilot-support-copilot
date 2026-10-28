@@ -1,54 +1,81 @@
-# ParcelPilot Support & Operations Copilot
+# ParcelPilot Support Copilot
 
-Complete runnable assessment prototype for both customer and internal operations contexts.
+A grounded support copilot for a logistics platform. It answers questions about orders,
+tickets, cancellation fees and service credits using only the ingested policy pack, applies
+contract-over-policy precedence in code rather than in the model, keeps every account
+isolated, cites its evidence, and never acts without an explicit confirmation.
 
-## Run
+Runs as a serverless, scale-to-zero stack: a static frontend on Vercel and an AWS Lambda
+API behind API Gateway with Cognito authentication. Steady-state cost is about **$1.20 a
+month** (see [docs/COSTS.md](docs/COSTS.md)).
 
-```bash
-npm install
-npm run ingest
-npm start
+```
+Vercel (static)  ──PKCE──►  Cognito  ──ID token──►  API Gateway HTTP API
+                                                        └─► Lambda ─► S3 · SSM · DynamoDB · OpenRouter
 ```
 
-Open http://localhost:3000. Run verification with `npm test`.
+## Layout
 
-Set `OPENROUTER_API_KEY` to run the OpenAI Agents SDK through OpenRouter. `OPENROUTER_MODEL` defaults to `openai/gpt-4.1-mini`. Direct OpenAI keys remain supported. Without a key, the API uses the deterministic fallback so reviewers can still run every workflow.
+| Path | What it is |
+| --- | --- |
+| [`frontend/`](frontend) | Static site for Vercel: chat UI, Issue Radar, Cognito PKCE login |
+| [`backend/`](backend) | Lambda API, SAM template, ingestion, tests |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Design, API surface, authorization model, safety properties |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy, verify, retire Render, rollback, emergency switches |
+| [`docs/COSTS.md`](docs/COSTS.md) | Per-service cost estimate and the controls that keep it there |
+| [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) | Product reasoning |
+| [`docs/REQUIREMENTS_AUDIT.md`](docs/REQUIREMENTS_AUDIT.md) | Requirement-by-requirement evidence |
+| [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) | How AI tooling was used to build this |
 
-## Deploy to Render
+## Local development
 
-Create a Blueprint from this repository's `render.yaml`. Render will prompt for `OPENROUTER_API_KEY`; the secret is never stored in Git. The Blueprint uses the free web-service plan, runs ingestion during build, and checks `/api/context` for service health.
+```bash
+cd backend && npm install && npm test        # 59 offline tests
+cp .env.example .env                         # add an OpenRouter key for the SDK agent
+npm run dev                                  # API on http://localhost:3000
+```
 
-## Included
+```bash
+cd frontend && npm run dev                   # UI on http://localhost:5173
+```
 
-- Natural-language chat combining scoped order lookup, authority-ranked document search, rules, and calculations.
-- Customer, support, and operations roles. Customer access is filtered in `src/data.js`; inaccessible and nonexistent IDs are indistinguishable.
-- Visible document, structured-data, calculation, issue-detection, and action tools.
-- Escalation, ticket-update, and follow-up actions. Each is previewed and saved to `data/actions.json` only after explicit confirmation.
-- Precedence: customer agreement > SOP > current policy > product guide. Deprecated sources are excluded; historical resolutions are context only.
-- Confidence labels and escalation for missing evidence, incomplete delivery, post-dispatch cancellation, and unsupported exceptions.
-- Internal Issue Radar for SLA breaches, recurring topics, multi-account patterns, and high-severity work. Customer API calls are rejected.
-- Dataset snapshot time used for every time calculation.
+`backend/scripts/local.js` injects the JWT claims that API Gateway's Cognito authorizer
+would normally supply, so the API can be exercised without a deployed stack. Set
+`DEV_GROUPS` and `DEV_ACCOUNT` to switch role and account. Without the Cognito
+environment variables the frontend shows a configuration notice instead of signing in,
+so point it at a deployed stack to use the real login.
 
-## Architecture
+Re-ingest the source pack after changing any PDF or the workbook:
 
-Browser → role/account-aware API → OpenAI Agents SDK orchestrator → scoped data/document tools and deterministic policy engine → confirmation-gated action store. A no-key fallback preserves local runnability.
+```bash
+cd backend && npm run ingest                 # local snapshot
+DATASET_BUCKET=<bucket> npm run ingest:upload  # also push sources + snapshot to S3
+```
 
-## Real assessment data
+## Tests
 
-All six supplied PDFs and `ParcelPilot_Assessment_Data.xlsx` are in `data/source`. Run `npm run ingest` after replacing a source file. The application loads the generated dataset dynamically rather than hard-coding workbook records.
+```bash
+cd backend
+npm test                  # agent, API handler, authorization and security suites
+npm run test:integration  # against a deployed stage; needs real Cognito tokens
+```
 
-## Prioritised continuation
+| Suite | Covers |
+| --- | --- |
+| `test/agent.test.js` | policy precedence, credits, citations, account isolation, Issue Radar |
+| `test/api.test.js` | every route, confirmation gate, token single-use and expiry, audit trail |
+| `test/authorization.test.js` | role derivation from Cognito groups, privilege-escalation attempts |
+| `test/security.test.js` | no key reachable client-side, JWT on every route, least-privilege IAM, encryption, no always-on resources |
+| `test/integration.test.js` | the deployed API: authorizer, CORS, S3 dataset, DynamoDB audit, end-to-end workflows |
 
-1. Add page-level citation metadata during ingestion.
-2. Replace the mock identity selector with SSO and server-issued RBAC claims.
-3. Add a constrained LLM planner while retaining deterministic permissions/calculations.
-4. Expand privacy, conflict, citation, time, and confirmation evaluations.
-5. Connect actions to the ticket platform with idempotency and immutable audit logs.
+## Deployment
 
-## Five-minute demo
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). In short:
 
-1. Explain trust hierarchy and data-layer access control.
-2. Ask as Northstar whether ORD-1001 can cancel free; show contract override and citations.
-3. Ask for ORD-1002 as Northstar; show privacy-safe denial.
-4. Switch to LumenWorks, calculate ORD-2002 credit, prepare it, and explicitly confirm.
-5. Switch to Operations and open Issue Radar for SLA and cross-account patterns.
+```bash
+cd backend && sam build && sam deploy --guided
+aws ssm put-parameter --name /parcelpilot/prod/openrouter-api-key --type SecureString --value "$KEY"
+DATASET_BUCKET=<bucket> npm run ingest:upload
+USER_POOL_ID=<pool> npm run seed:users
+cd ../frontend && vercel deploy --prod
+```
