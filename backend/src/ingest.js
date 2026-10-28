@@ -1,7 +1,9 @@
 // Shared ingestion: parse the source PDFs and workbook into the dataset snapshot.
 // Byte buffers come either from S3 (Lambda) or from disk (local CLI), so the parsing
 // rules that classify authority and precedence live in exactly one place.
-const pdf=require('pdf-parse'),ExcelJS=require('exceljs');
+// Require the library entry point directly: pdf-parse's index.js runs a debug branch that
+// reads a sample file when it cannot see a parent module, which a bundled build triggers.
+const pdf=require('pdf-parse/lib/pdf-parse.js'),ExcelJS=require('exceljs');
 const value=cell=>{const v=cell.value;if(v instanceof Date)return v.toISOString().slice(0,16).replace('T',' ');if(v&&typeof v==='object'&&'result'in v)return v.result;return v??null};
 const rows=sheet=>{const headers=sheet.getRow(1).values.slice(1).map(String);const data=[];sheet.eachRow((row,n)=>{if(n===1)return;const item={};headers.forEach((h,i)=>item[h]=value(row.getCell(i+1)));data.push(item)});return data};
 

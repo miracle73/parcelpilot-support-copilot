@@ -33,6 +33,22 @@ Parameters:
   BurstLimit:
     Type: Number
     Default: 40
+  ApiReservedConcurrency:
+    Type: Number
+    Default: -1
+    Description: >-
+      Reserved concurrency for the API Lambda, which caps blast radius and spend.
+      Leave at -1 to inherit the account pool. A positive value requires an account
+      concurrency quota above 10, since AWS keeps 10 unreserved at all times.
+  EnableUserPoolDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Turn on once the pool holds real users; it blocks stack rollback while on.
+
+Conditions:
+  CapConcurrency: !Not [!Equals [!Ref ApiReservedConcurrency, -1]]
+  ProtectUserPool: !Equals [!Ref EnableUserPoolDeletionProtection, 'true']
 
 Globals:
   Function:
@@ -130,7 +146,7 @@ Resources:
       AutoVerifiedAttributes: [email]
       MfaConfiguration: OPTIONAL
       EnabledMfas: [SOFTWARE_TOKEN_MFA]
-      DeletionProtection: ACTIVE
+      DeletionProtection: !If [ProtectUserPool, ACTIVE, INACTIVE]
       AdminCreateUserConfig:
         AllowAdminCreateUserOnly: true
       Policies:
@@ -249,11 +265,20 @@ Resources:
 
   ApiFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      # esbuild keeps the deployed bundle in the low megabytes. The AWS SDK v3 clients are
+      # provided by the Node 22 runtime, so they stay external rather than being shipped.
+      BuildMethod: esbuild
+      BuildProperties:
+        Target: es2022
+        Sourcemap: true
+        EntryPoints: [src/handlers/index.js]
+        External: ['@aws-sdk/*']
     Properties:
       FunctionName: !Sub parcelpilot-api-${Stage}
       CodeUri: ./
       Handler: src/handlers/index.handler
-      ReservedConcurrentExecutions: 20
+      ReservedConcurrentExecutions: !If [CapConcurrency, !Ref ApiReservedConcurrency, !Ref 'AWS::NoValue']
       Environment:
         Variables:
           TABLE_NAME: !Ref ActionsTable
@@ -308,6 +333,13 @@ Resources:
 
   IngestFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Target: es2022
+        Sourcemap: true
+        EntryPoints: [src/handlers/ingest.js]
+        External: ['@aws-sdk/*']
     Properties:
       FunctionName: !Sub parcelpilot-ingest-${Stage}
       CodeUri: ./

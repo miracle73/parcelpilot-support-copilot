@@ -9,6 +9,7 @@ Pick a region once and use it everywhere (`us-east-1` below).
 cd backend
 npm install
 npm test                       # unit, authorization and security suites must pass first
+export PATH="$PWD/node_modules/.bin:$PATH"   # sam build needs esbuild on PATH
 sam build
 sam deploy --guided \
   --stack-name parcelpilot-prod \
@@ -19,6 +20,26 @@ sam deploy --guided \
 
 `AllowedOrigin` is a placeholder on the first pass because Vercel has not issued the
 domain yet. Step 5 updates it.
+
+If `sam deploy` fails on Windows with `'C:\Program' is not recognized`, package and deploy
+with the AWS CLI instead, which does not shell out:
+
+```bash
+aws cloudformation package --template-file .aws-sam/build/template.yaml   --s3-bucket <an artifacts bucket> --output-template-file packaged.yaml
+aws cloudformation deploy --template-file packaged.yaml --stack-name parcelpilot-prod   --region us-east-1 --capabilities CAPABILITY_IAM   --parameter-overrides Stage=prod AllowedOrigin=... AlarmEmail=...
+```
+
+### Account quotas to check first
+
+- **Lambda concurrency.** A new account has a limit of 10, and AWS keeps 10 unreserved, so
+  any reservation is rejected. `ApiReservedConcurrency` therefore defaults to `-1` (inherit
+  the account pool). Raise the account quota, then redeploy with
+  `ApiReservedConcurrency=20` to cap blast radius.
+- **User pool deletion protection** is off by default, because it blocks CloudFormation
+  rollback and leaves a stack stuck in `ROLLBACK_FAILED`. Turn it on with
+  `EnableUserPoolDeletionProtection=true` once the pool holds real users.
+- `DatasetBucket` and `ActionsTable` are `Retain`. If a first deploy fails and you redeploy,
+  delete the retained empty bucket and table first or early validation rejects the change set.
 
 Record the outputs:
 

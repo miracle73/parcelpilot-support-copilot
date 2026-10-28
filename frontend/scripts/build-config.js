@@ -19,11 +19,17 @@ if (missing.length) {
   console.warn('[build-config] The app will render a configuration notice instead of signing in.');
 }
 
-const banned = Object.keys(process.env).filter(k => /OPENROUTER|OPENAI|SECRET|AWS_SECRET|PRIVATE/i.test(k));
-for (const key of banned) {
-  if (JSON.stringify(config).includes(process.env[key] || '\u0000')) {
-    throw new Error(`[build-config] Refusing to emit a value that matches ${key}`);
-  }
+// Guard against a secret being wired into one of the public variables by mistake. Only
+// values long enough to be real credentials are compared, so short build-platform flags
+// such as NEXT_PRIVATE_MULTI_PAYLOAD=1 cannot trip it.
+const emitted = JSON.stringify(config);
+const sensitive = /^(OPENROUTER|OPENAI)|_?(API_KEY|SECRET|TOKEN|PASSWORD|PRIVATE_KEY)$/i;
+for (const [key, value] of Object.entries(process.env)) {
+  if (!sensitive.test(key) || !value || value.length < 12) continue;
+  if (emitted.includes(value)) throw new Error(`[build-config] Refusing to emit a value that matches ${key}`);
+}
+if (/sk-or-v1-|sk-proj-|AKIA[0-9A-Z]{16}/.test(emitted)) {
+  throw new Error('[build-config] Refusing to emit what looks like a credential');
 }
 
 const out = path.join(__dirname, '..', 'config.js');

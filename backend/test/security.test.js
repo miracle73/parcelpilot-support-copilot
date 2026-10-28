@@ -65,7 +65,7 @@ test('storage is encrypted, private and recoverable', () => {
 test('throttling, concurrency caps, alarms and a budget are in place', () => {
   assert.match(template, /ThrottlingRateLimit: !Ref RateLimit/);
   assert.match(template, /ThrottlingBurstLimit: !Ref BurstLimit/);
-  assert.match(template, /ReservedConcurrentExecutions: 20/);
+  assert.match(template, /ReservedConcurrentExecutions: !If \[CapConcurrency/);
   for (const alarm of ['api-5xx', 'api-4xx', 'lambda-errors', 'lambda-throttles']) {
     assert.ok(template.includes(alarm), `missing alarm ${alarm}`);
   }
