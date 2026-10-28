@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node scripts/build-config.js",
-  "outputDirectory": ".",
+  "comment": "Lives at the repository root so the Vercel Git integration builds the frontend without a Root Directory override. API_BASE_URL, COGNITO_DOMAIN and COGNITO_CLIENT_ID come from the project environment variables; no secret is ever emitted into the bundle.",
+  "buildCommand": "node frontend/scripts/build-config.js",
+  "outputDirectory": "frontend",
   "cleanUrls": true,
   "headers": [
     {

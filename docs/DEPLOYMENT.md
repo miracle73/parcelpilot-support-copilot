@@ -86,14 +86,23 @@ Passwords are generated, printed once and never stored. Put them in a password m
 
 ## 5. Deploy the frontend to Vercel
 
+The build configuration lives in `vercel.json` at the **repository root**, so the Vercel
+Git integration builds `frontend/` without a Root Directory override. Deploy from the
+repository root, not from `frontend/`.
+
 ```bash
-cd ../frontend
+cd ..
 vercel link
-vercel env add API_BASE_URL production       # <ApiBaseUrl output>
-vercel env add COGNITO_DOMAIN production     # <CognitoDomain output>
-vercel env add COGNITO_CLIENT_ID production  # <UserPoolClientId output>
+for t in production preview; do
+  vercel env add API_BASE_URL $t       # <ApiBaseUrl output>
+  vercel env add COGNITO_DOMAIN $t     # <CognitoDomain output>
+  vercel env add COGNITO_CLIENT_ID $t  # <UserPoolClientId output>
+done
 vercel deploy --prod
 ```
+
+Add the variables to **both** targets: preview deployments on pull requests run the same
+build, and the build fails without them.
 
 Then close the CORS and redirect loop with the real domain:
 

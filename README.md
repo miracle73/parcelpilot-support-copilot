@@ -19,6 +19,7 @@ Vercel (static)  ──PKCE──►  Cognito  ──ID token──►  API Gate
 | Path | What it is |
 | --- | --- |
 | [`frontend/`](frontend) | Static site for Vercel: chat UI, Issue Radar, Cognito PKCE login |
+| [`vercel.json`](vercel.json) | Vercel build config; builds `frontend/` from the repo root |
 | [`backend/`](backend) | Lambda API, SAM template, ingestion, tests |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Design, API surface, authorization model, safety properties |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy, verify, retire Render, rollback, emergency switches |
@@ -77,5 +78,5 @@ cd backend && sam build && sam deploy --guided
 aws ssm put-parameter --name /parcelpilot/prod/openrouter-api-key --type SecureString --value "$KEY"
 DATASET_BUCKET=<bucket> npm run ingest:upload
 USER_POOL_ID=<pool> npm run seed:users
-cd ../frontend && vercel deploy --prod
+cd .. && vercel deploy --prod   # vercel.json at the repo root builds frontend/
 ```
