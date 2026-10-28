@@ -1,0 +1,495 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: ParcelPilot Support Copilot - serverless API (Lambda, API Gateway HTTP API, Cognito, DynamoDB on-demand, S3, SSM)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, prod]
+  AllowedOrigin:
+    Type: String
+    Description: Vercel frontend origin, e.g. https://parcelpilot.vercel.app
+  LocalOrigin:
+    Type: String
+    Default: http://localhost:5173
+    Description: Development origin allowed through CORS and Cognito redirects
+  OpenRouterModel:
+    Type: String
+    Default: openai/gpt-4.1-mini
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    Description: Short retention keeps CloudWatch cost near zero
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 10
+  AlarmEmail:
+    Type: String
+    Description: Address that receives CloudWatch alarms and budget alerts
+  RateLimit:
+    Type: Number
+    Default: 20
+  BurstLimit:
+    Type: Number
+    Default: 40
+  ApiReservedConcurrency:
+    Type: Number
+    Default: -1
+    Description: >-
+      Reserved concurrency for the API Lambda, which caps blast radius and spend.
+      Leave at -1 to inherit the account pool. A positive value requires an account
+      concurrency quota above 10, since AWS keeps 10 unreserved at all times.
+  EnableUserPoolDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Turn on once the pool holds real users; it blocks stack rollback while on.
+
+Conditions:
+  CapConcurrency: !Not [!Equals [!Ref ApiReservedConcurrency, -1]]
+  ProtectUserPool: !Equals [!Ref EnableUserPoolDeletionProtection, 'true']
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 1024
+    Timeout: 30
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_OPTIONS: --enable-source-maps
+        DATASET_BUCKET: !Ref DatasetBucket
+        DATASET_KEY: ingested.json
+        SOURCE_PREFIX: source/
+
+Resources:
+
+  # ---------------------------------------------------------------- data at rest
+  DatasetBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub parcelpilot-dataset-${Stage}-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldDatasetVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+
+  DatasetBucketTlsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DatasetBucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !Sub arn:aws:s3:::${DatasetBucket}
+              - !Sub arn:aws:s3:::${DatasetBucket}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  ActionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub parcelpilot-actions-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ---------------------------------------------------------------- identity
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub parcelpilot-${Stage}
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      DeletionProtection: !If [ProtectUserPool, ACTIVE, INACTIVE]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+      UserAttributeUpdateSettings:
+        AttributesRequireVerificationBeforeUpdate: [email]
+      Schema:
+        # Account binding is written by an administrator only. A signed-in customer cannot
+        # move themselves to another account, so account isolation holds at the identity layer.
+        - Name: account
+          AttributeDataType: String
+          Mutable: false
+          StringAttributeConstraints:
+            MinLength: '4'
+            MaxLength: '32'
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub parcelpilot-${Stage}-${AWS::AccountId}
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub parcelpilot-web-${Stage}
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlows: [code]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs:
+        - !Ref AllowedOrigin
+        - !Ref LocalOrigin
+      LogoutURLs:
+        - !Ref AllowedOrigin
+        - !Ref LocalOrigin
+      # ADMIN_USER_PASSWORD_AUTH is reachable only with AWS credentials (never from the
+      # browser) and is what the production integration tests use to mint real tokens.
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH, ALLOW_ADMIN_USER_PASSWORD_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ReadAttributes: [email, 'custom:account']
+      WriteAttributes: [email]
+
+  CustomerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: customer
+      Precedence: 30
+      UserPoolId: !Ref UserPool
+      Description: Customer users, locked to their own account
+  SupportGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: support
+      Precedence: 20
+      UserPoolId: !Ref UserPool
+      Description: Support agents, cross-account read and ticket updates
+  OpsGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: ops
+      Precedence: 10
+      UserPoolId: !Ref UserPool
+      Description: Operations leads, Issue Radar and follow-ups
+
+  # ---------------------------------------------------------------- API
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      Auth:
+        DefaultAuthorizer: CognitoJwt
+        Authorizers:
+          CognitoJwt:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              audience:
+                - !Ref UserPoolClient
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+          - !Ref LocalOrigin
+        AllowHeaders: [content-type, authorization]
+        AllowMethods: [GET, POST, OPTIONS]
+        MaxAge: 600
+      DefaultRouteSettings:
+        ThrottlingRateLimit: !Ref RateLimit
+        ThrottlingBurstLimit: !Ref BurstLimit
+        DetailedMetricsEnabled: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogs.Arn
+        Format: '{"t":"$context.requestTime","id":"$context.requestId","route":"$context.routeKey","status":"$context.status","sub":"$context.authorizer.claims.sub","ms":"$context.responseLatency"}'
+
+  ApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/parcelpilot-${Stage}
+      RetentionInDays: !Ref LogRetentionDays
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      # esbuild keeps the deployed bundle in the low megabytes. The AWS SDK v3 clients are
+      # provided by the Node 22 runtime, so they stay external rather than being shipped.
+      BuildMethod: esbuild
+      BuildProperties:
+        Target: es2022
+        Sourcemap: true
+        EntryPoints: [src/handlers/index.js]
+        External: ['@aws-sdk/*']
+    Properties:
+      FunctionName: !Sub parcelpilot-api-${Stage}
+      CodeUri: ./
+      Handler: src/handlers/index.handler
+      ReservedConcurrentExecutions: !If [CapConcurrency, !Ref ApiReservedConcurrency, !Ref 'AWS::NoValue']
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ActionsTable
+          PENDING_TTL_SECONDS: 900
+          OPENROUTER_PARAMETER_NAME: !Sub /parcelpilot/${Stage}/openrouter-api-key
+          OPENROUTER_MODEL: !Ref OpenRouterModel
+          APP_URL: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Sid: ReadDatasetSnapshotOnly
+              Effect: Allow
+              Action: [s3:GetObject]
+              Resource: !Sub arn:aws:s3:::${DatasetBucket}/ingested.json
+            - Sid: ReadOpenRouterSecret
+              Effect: Allow
+              Action: [ssm:GetParameter]
+              Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/parcelpilot/${Stage}/openrouter-api-key
+            - Sid: AuditAndPendingActions
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource: !GetAtt ActionsTable.Arn
+      Events:
+        Context:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: GET, Path: /api/context }
+        Chat:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: POST, Path: /api/chat }
+        Issues:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: POST, Path: /api/issues }
+        ActionsPrepare:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: POST, Path: /api/actions/prepare }
+        ActionsConfirm:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: POST, Path: /api/actions/confirm }
+        ActionsList:
+          Type: HttpApi
+          Properties: { ApiId: !Ref Api, Method: GET, Path: /api/actions }
+
+  ApiFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/parcelpilot-api-${Stage}
+      RetentionInDays: !Ref LogRetentionDays
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Target: es2022
+        Sourcemap: true
+        EntryPoints: [src/handlers/ingest.js]
+        External: ['@aws-sdk/*']
+    Properties:
+      FunctionName: !Sub parcelpilot-ingest-${Stage}
+      CodeUri: ./
+      Handler: src/handlers/ingest.handler
+      Timeout: 120
+      MemorySize: 1536
+      Policies:
+        - Statement:
+            - Sid: ReadRawSources
+              Effect: Allow
+              Action: [s3:GetObject]
+              Resource: !Sub arn:aws:s3:::${DatasetBucket}/source/*
+            - Sid: ListSourcePrefix
+              Effect: Allow
+              Action: [s3:ListBucket]
+              Resource: !Sub arn:aws:s3:::${DatasetBucket}
+              Condition:
+                StringLike:
+                  s3:prefix: [source/*, source/]
+            - Sid: WriteSnapshot
+              Effect: Allow
+              Action: [s3:PutObject]
+              Resource: !Sub arn:aws:s3:::${DatasetBucket}/ingested.json
+
+  IngestFunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/parcelpilot-ingest-${Stage}
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ---------------------------------------------------------------- monitoring
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub parcelpilot-alarms-${Stage}
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  ApiServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub parcelpilot-${Stage}-api-5xx
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ApiClientErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub parcelpilot-${Stage}-api-4xx
+      Namespace: AWS/ApiGateway
+      MetricName: 4xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub parcelpilot-${Stage}-lambda-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  LambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub parcelpilot-${Stage}-lambda-throttles
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub parcelpilot-${Stage}-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlarmEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlarmEmail
+
+Outputs:
+  ApiBaseUrl:
+    Description: Value for the Vercel VITE_API_BASE_URL environment variable
+    Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub https://parcelpilot-${Stage}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com
+  DatasetBucketName:
+    Value: !Ref DatasetBucket
+  ActionsTableName:
+    Value: !Ref ActionsTable
+  IngestFunctionName:
+    Value: !Ref IngestFunction
+  OpenRouterParameterPath:
+    Value: !Sub /parcelpilot/${Stage}/openrouter-api-key

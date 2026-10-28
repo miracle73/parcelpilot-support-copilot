@@ -1,0 +1,11 @@
+{
+  "name": "parcelpilot-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ParcelPilot Support Copilot static frontend, deployed on Vercel",
+  "scripts": {
+    "build": "node scripts/build-config.js",
+    "dev": "node scripts/build-config.js && node scripts/serve.js"
+  },
+  "engines": { "node": ">=22" }
+}
