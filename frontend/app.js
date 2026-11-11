@@ -5,15 +5,17 @@ const api=(path,opts)=>window.PP_AUTH.api(path,opts);
 // The signed-in Cognito group is the ceiling. These selectors can only narrow scope; the
 // Lambda re-derives the effective role and account from the token on every request.
 const requestScope=()=>({role:role.value,account:account.value});
+// The API returns camelCase keys; these are what a person would actually call them.
+const METRIC_LABELS={open:'still open',slaBreaches:'past their SLA',p1Incidents:'P1 incidents',knownIssueMatches:'known issues'};
 
 function add(text,who='bot',x={}){
   const e=document.createElement('div');e.className='message '+who;
   let h=who==='bot'?'<div class="avatar bot-avatar">PP</div>':'';
   h+=`<div class="bubble">${text}`;
-  if(x.tools?.length)h+=`<details open><summary>Tool activity (${x.tools.length})</summary>${x.tools.map(t=>`<div class="tool">✓ <b>${esc(t.name)}</b> — ${esc(t.label)}</div>`).join('')}</details>`;
-  if(x.sources?.length)h+=`<div class="sources"><b>Evidence</b>${x.sources.map(s=>`<span>${esc(s.title)}${typeof s.authority==='number'?` · authority ${s.authority}/100`:''}</span>`).join('')}</div>`;
+  if(x.tools?.length)h+=`<details open><summary>How I got there (${x.tools.length})</summary>${x.tools.map(t=>`<div class="tool">✓ <b>${esc(t.name)}</b> — ${esc(t.label)}</div>`).join('')}</details>`;
+  if(x.sources?.length)h+=`<div class="sources"><b>What I read</b>${x.sources.map(s=>`<span>${esc(s.title)}${typeof s.authority==='number'?` · authority ${s.authority}/100`:''}</span>`).join('')}</div>`;
   if(x.confidence)h+=`<div class="confidence ${x.confidence}">${x.confidence} confidence</div>`;
-  if(x.action){const labels={escalation:'Request support review',ticket_update:'Prepare ticket update',follow_up:'Prepare follow-up'};h+=`<button class="action">${labels[x.action.type]||'Review proposed action'}</button>`}
+  if(x.action){const labels={escalation:'Escalate this',ticket_update:'Update the ticket',follow_up:'Set a follow-up'};h+=`<button class="action">${labels[x.action.type]||'Look at this first'}</button>`}
   e.innerHTML=h+'</div>';chat.append(e);chat.scrollTop=chat.scrollHeight;
   if(x.action)e.querySelector('.action').onclick=()=>prepare(x.action);
   return e;
@@ -21,7 +23,7 @@ function add(text,who='bot',x={}){
 
 function showLoading(){
   const e=document.createElement('div');e.className='message bot loading-message';
-  e.innerHTML='<div class="avatar bot-avatar">PP</div><div class="bubble loading-bubble"><span class="spinner"></span><div><b>ParcelPilot is investigating</b><small>Checking authorised data and source guidance…</small></div></div>';
+  e.innerHTML='<div class="avatar bot-avatar">PP</div><div class="bubble loading-bubble"><span class="spinner"></span><div><b>Reading the file</b><small>Checking the contract, the SOP, and what you are allowed to see…</small></div></div>';
   chat.append(e);chat.scrollTop=chat.scrollHeight;return e;
 }
 
@@ -32,11 +34,11 @@ async function send(text=input.value.trim()){
   add(esc(text),'user');input.value='';setBusy(true);const loading=showLoading();
   try{
     const r=await api('/api/chat',{method:'POST',body:{message:text,...requestScope()}});
-    const d=await r.json();loading.remove();add(`<p>${esc(d.answer||d.error||'No response was returned.')}</p>`,'bot',d);
+    const d=await r.json();loading.remove();add(`<p>${esc(d.answer||d.error||'Nothing came back that time.')}</p>`,'bot',d);
   }catch(e){
     loading.remove();
     const expired=e.message==='Session expired'||e.message==='Redirecting to sign-in';
-    add(`<p>${esc(expired?'Your session expired. Signing you in again…':'I could not reach the support agent. Please try again.')}</p>`,'bot',{confidence:'low'});
+    add(`<p>${esc(expired?'Session timed out — sending you back to sign in.':'Could not reach the desk. Try that again?')}</p>`,'bot',{confidence:'low'});
   }finally{setBusy(false);input.focus()}
 }
 
@@ -44,27 +46,27 @@ async function prepare(a){
   try{
     const r=await api('/api/actions/prepare',{method:'POST',body:{...a,...requestScope()}}),d=await r.json();
     if(!r.ok)return add(`<p>${esc(d.error)}</p>`);
-    const card=add(`<b>Review before action</b><p>${esc(d.preview.summary)}</p><small>No state has changed.</small><p><button class="confirm">Confirm and execute</button></p>`);
+    const card=add(`<b>Check this before it happens</b><p>${esc(d.preview.summary)}</p><small>Nothing has changed yet.</small><p><button class="confirm">Yes, do it</button></p>`);
     card.querySelector('.confirm').onclick=e=>confirm(d.token,e.currentTarget);
   }catch(e){add(`<p>${esc(e.message)}</p>`)}
 }
 
 async function confirm(actionToken,button){
-  button.disabled=true;button.textContent='Executing…';
+  button.disabled=true;button.textContent='Working…';
   try{
     const r=await api('/api/actions/confirm',{method:'POST',body:{token:actionToken,confirm:true}}),d=await r.json();
     if(!r.ok){button.disabled=false;button.textContent='Try again';return add(`<p>${esc(d.error)}</p>`)}
     button.textContent='Executed';
-    add(`<b>Action ${esc(d.id)} created</b><p>An audit record was saved.</p>`);
+    add(`<b>Done — ${esc(d.id)}</b><p>It is in the audit trail.</p>`);
   }catch(e){button.disabled=false;button.textContent='Try again';add(`<p>${esc(e.message)}</p>`)}
 }
 
 async function radar(){
-  if(role.value==='customer'){alerts.innerHTML='<div class="empty">Issue Radar requires an authorised support or operations role.</div>';metrics.innerHTML='';return}
+  if(role.value==='customer'){alerts.innerHTML='<div class="empty">Issue Radar is for support and ops. This account does not have it.</div>';metrics.innerHTML='';return}
   try{
     const r=await api('/api/issues',{method:'POST',body:requestScope()}),d=await r.json();
-    if(!r.ok){alerts.innerHTML=`<div class="empty">${esc(d.error||'Issue Radar is unavailable.')}</div>`;metrics.innerHTML='';return}
-    metrics.innerHTML=Object.entries(d.summary).map(([k,v])=>`<div><strong>${v}</strong><span>${k.replace(/([A-Z])/g,' $1')}</span></div>`).join('');
+    if(!r.ok){alerts.innerHTML=`<div class="empty">${esc(d.error||'Issue Radar is not answering right now.')}</div>`;metrics.innerHTML='';return}
+    metrics.innerHTML=Object.entries(d.summary).map(([k,v])=>`<div><strong>${v}</strong><span>${METRIC_LABELS[k]||k.replace(/([A-Z])/g,' $1')}</span></div>`).join('');
     alerts.innerHTML=d.alerts.map(a=>`<article class="${a.level}"><b>${esc(a.title)}</b><p>${esc(a.detail)}</p><span>${a.level}</span></article>`).join('');
   }catch(e){alerts.innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
@@ -95,7 +97,7 @@ async function loadAccounts(){
       account.disabled=true;
     }
     if(me.account&&[...account.options].some(o=>o.value===me.account))account.value=me.account;
-    if(d.snapshot)$('#snapshot').textContent=`Dataset snapshot · ${d.snapshot}`;
+    if(d.snapshot)$('#snapshot').textContent=`Working from the ${d.snapshot} snapshot`;
   }catch{}
 }
 
@@ -126,10 +128,10 @@ function gate(message){
   $('#signin').onclick=()=>window.PP_AUTH.login();
   $('#signout').onclick=()=>window.PP_AUTH.logout();
 
-  if(!window.PP_AUTH.configured)return gate('This deployment is missing its API and Cognito configuration. Set API_BASE_URL, COGNITO_DOMAIN and COGNITO_CLIENT_ID in Vercel and redeploy.');
+  if(!window.PP_AUTH.configured)return gate('This build is missing its API and sign-in settings. Set API_BASE_URL, COGNITO_DOMAIN and COGNITO_CLIENT_ID in Vercel, then redeploy.');
   try{await window.PP_AUTH.init()}catch(e){return gate(e.message)}
   me=window.PP_AUTH.profile();
-  if(!me)return gate('Sign in with your ParcelPilot account to continue.');
+  if(!me)return gate('Use your ParcelPilot account — it takes a second.');
   $('#gate').hidden=true;
   applyIdentity();
   await loadAccounts();
