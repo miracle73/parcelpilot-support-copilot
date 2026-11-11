@@ -140,13 +140,30 @@ nothing.
 
 ## 7. Retire Render
 
-Only after step 6 passes end to end:
+Only after step 6 passes end to end.
 
-1. Keep the Render service running but take it out of any DNS or bookmark path.
-2. Watch CloudWatch for 48 hours: `parcelpilot-prod-api-5xx`, `-api-4xx`,
-   `-lambda-errors`, `-lambda-throttles` should stay in `OK`.
-3. Delete the Render service and remove its environment variables, including the
-   OpenRouter key stored there.
+**Take the OpenRouter key off Render first.** It is the one piece of state that exists
+nowhere else. Copy it out of the Render dashboard (Environment → `OPENROUTER_API_KEY`)
+and put it in SSM before you delete anything:
+
+```bash
+aws ssm put-parameter --region us-east-1   --name /parcelpilot/prod/openrouter-api-key --type SecureString   --value "<the key from Render>" --overwrite
+aws ssm get-parameter --region us-east-1 --name /parcelpilot/prod/openrouter-api-key   --query 'Parameter.Name' --output text        # confirms it landed
+```
+
+Until that parameter exists the API answers from the deterministic engine alone. That is
+safe — every consequential decision is re-run in code anyway — but the SDK agent is off.
+
+Then:
+
+1. Take the Render service out of any DNS record, bookmark or README link, but leave it
+   running. This is the cheap reversal: if something is wrong, point traffic back.
+2. Suspend it rather than deleting it, and watch CloudWatch for 48 hours:
+   `parcelpilot-prod-api-5xx`, `-api-4xx`, `-lambda-errors` and `-lambda-throttles`
+   should stay in `OK`.
+3. Delete the Render service and its environment variables.
+
+Deleting the service is a dashboard action; there is no CLI for it.
 
 ## Rollback
 
