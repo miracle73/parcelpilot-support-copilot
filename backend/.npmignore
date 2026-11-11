@@ -1,0 +1,4 @@
+test/
+scripts/local.js
+data-source/*.pdf
+data-source/*.xlsx

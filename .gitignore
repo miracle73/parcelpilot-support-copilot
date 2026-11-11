@@ -1,4 +1,7 @@
 node_modules/
-data/actions.json
 .env
-npm-debug.log*
+.env*
+.vercel
+.aws-sam/
+samconfig.toml
+frontend/config.js

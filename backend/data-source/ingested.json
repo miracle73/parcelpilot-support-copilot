@@ -1,6 +1,7 @@
 {
   "snapshot": "2026-08-16 11:00 Asia/Kolkata",
   "currency": "INR",
+  "ingestedAt": "2026-10-28T13:22:40.874Z",
   "accounts": [
     {
       "account_id": "ACCT-001",
