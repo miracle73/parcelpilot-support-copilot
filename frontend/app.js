@@ -1,7 +1,10 @@
 const $=s=>document.querySelector(s),chat=$('#chat'),input=$('#input'),sendButton=$('#send');
 let busy=false,me=null;
 const esc=s=>{let d=document.createElement('div');d.textContent=s;return d.innerHTML};
-const api=(path,opts)=>window.PP_AUTH.api(path,opts);
+// Named callApi, not api: auth.js already declares a top-level `api`, and two top-level
+// declarations of the same name across classic scripts is a SyntaxError that kills the
+// whole bundle — which left the signed-out shell on screen instead of the sign-in gate.
+const callApi=(path,opts)=>window.PP_AUTH.api(path,opts);
 // The signed-in Cognito group is the ceiling. These selectors can only narrow scope; the
 // Lambda re-derives the effective role and account from the token on every request.
 const requestScope=()=>({role:role.value,account:account.value});
@@ -33,7 +36,7 @@ async function send(text=input.value.trim()){
   if(!text||busy)return;
   add(esc(text),'user');input.value='';setBusy(true);const loading=showLoading();
   try{
-    const r=await api('/api/chat',{method:'POST',body:{message:text,...requestScope()}});
+    const r=await callApi('/api/chat',{method:'POST',body:{message:text,...requestScope()}});
     const d=await r.json();loading.remove();add(`<p>${esc(d.answer||d.error||'Nothing came back that time.')}</p>`,'bot',d);
   }catch(e){
     loading.remove();
@@ -44,7 +47,7 @@ async function send(text=input.value.trim()){
 
 async function prepare(a){
   try{
-    const r=await api('/api/actions/prepare',{method:'POST',body:{...a,...requestScope()}}),d=await r.json();
+    const r=await callApi('/api/actions/prepare',{method:'POST',body:{...a,...requestScope()}}),d=await r.json();
     if(!r.ok)return add(`<p>${esc(d.error)}</p>`);
     const card=add(`<b>Check this before it happens</b><p>${esc(d.preview.summary)}</p><small>Nothing has changed yet.</small><p><button class="confirm">Yes, do it</button></p>`);
     card.querySelector('.confirm').onclick=e=>confirm(d.token,e.currentTarget);
@@ -54,7 +57,7 @@ async function prepare(a){
 async function confirm(actionToken,button){
   button.disabled=true;button.textContent='Working…';
   try{
-    const r=await api('/api/actions/confirm',{method:'POST',body:{token:actionToken,confirm:true}}),d=await r.json();
+    const r=await callApi('/api/actions/confirm',{method:'POST',body:{token:actionToken,confirm:true}}),d=await r.json();
     if(!r.ok){button.disabled=false;button.textContent='Try again';return add(`<p>${esc(d.error)}</p>`)}
     button.textContent='Executed';
     add(`<b>Done — ${esc(d.id)}</b><p>It is in the audit trail.</p>`);
@@ -64,7 +67,7 @@ async function confirm(actionToken,button){
 async function radar(){
   if(role.value==='customer'){alerts.innerHTML='<div class="empty">Issue Radar is for support and ops. This account does not have it.</div>';metrics.innerHTML='';return}
   try{
-    const r=await api('/api/issues',{method:'POST',body:requestScope()}),d=await r.json();
+    const r=await callApi('/api/issues',{method:'POST',body:requestScope()}),d=await r.json();
     if(!r.ok){alerts.innerHTML=`<div class="empty">${esc(d.error||'Issue Radar is not answering right now.')}</div>`;metrics.innerHTML='';return}
     metrics.innerHTML=Object.entries(d.summary).map(([k,v])=>`<div><strong>${v}</strong><span>${METRIC_LABELS[k]||k.replace(/([A-Z])/g,' $1')}</span></div>`).join('');
     alerts.innerHTML=d.alerts.map(a=>`<article class="${a.level}"><b>${esc(a.title)}</b><p>${esc(a.detail)}</p><span>${a.level}</span></article>`).join('');
@@ -88,7 +91,7 @@ function applyIdentity(){
 
 async function loadAccounts(){
   try{
-    const r=await api('/api/context');
+    const r=await callApi('/api/context');
     if(!r.ok)return;
     const d=await r.json();
     if(d.accounts?.length)account.innerHTML=d.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');

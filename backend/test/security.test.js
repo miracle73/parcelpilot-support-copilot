@@ -98,3 +98,18 @@ test('no secret material is committed anywhere in the backend tree', () => {
     assert.doesNotMatch(text, /AKIA[0-9A-Z]{16}/, `${file} appears to contain an AWS access key id`);
   }
 });
+
+// auth.js and app.js are classic scripts sharing one global lexical scope. Two top-level
+// declarations of the same name is a SyntaxError that silently kills the whole page, so
+// the signed-out shell renders instead of the sign-in gate. This caught exactly that.
+test('frontend scripts declare no clashing top-level names', () => {
+  const names = file => {
+    const text = fs.readFileSync(path.join(frontend, file), 'utf8');
+    const found = new Set();
+    for (const m of text.matchAll(/^(?:const|let|var|function|async function)\s+([A-Za-z_$][\w$]*)/gm)) found.add(m[1]);
+    return found;
+  };
+  const auth = names('auth.js'), app = names('app.js');
+  const clash = [...auth].filter(n => app.has(n));
+  assert.deepEqual(clash, [], `top-level name(s) declared in both auth.js and app.js: ${clash.join(', ')}`);
+});
